@@ -3,6 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import alpaca_trade_api as tradeapi
 import torch
+import random
 from ENV_Variables import *
 
 # Takes a timestamp object, and returns if the market is closed
@@ -103,5 +104,33 @@ def moving_averages(data,ks):
     # Return moving_averages, last value array and new data
     max_k = np.max(ks)
     return moving_averages
+
+# Function for training on a batch for MC
+# Accepts transitions (s,a,r) batchsize, and all relevant things for model
+def train_model(transitions,batch_size,model,optimizer,loss_fn,num_actions):
+
+    # Grab a batch from transitions
+    batch = random.sample(transitions,batch_size)
+
+    # Get all the the parts from the transition
+    states = torch.Tensor([s for (s,a,r) in batch])
+    actions = [a for (s,a,r) in batch]
+    returns = torch.Tensor([r for (s,a,r) in batch])
+
+    # Feed all states to get action values and flatten
+    action_values = model(states).view(-1)
+
+    # Scale up actions by number to get index for flattened states
+    actions = [i*num_actions + actions[i] for i in range(len(actions))]
+
+    # Grab all action value predictions for the current state
+    predictions = action_values[actions]
+
+    # Compute the loss (the returns are the targets)
+    loss = loss_fn(predictions,returns)
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+
 
 
