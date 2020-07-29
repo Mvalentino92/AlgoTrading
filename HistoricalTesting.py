@@ -76,7 +76,7 @@ class Environment:
         # Timestamp for time and grab the time normalized for max time
         timestamp = datum.name
         self.current_time = timestamp.time().hour*60 + timestamp.time().minute
-        t = np.array([(self.current_time - OPEN_TIME)/(CLOSE_TIME - OPEN_TIME)])
+        t = np.array([normalized_time(self.current_time)])
 
         # Convert datum to np.array (since we're done with it)
         datum = np.array(datum)
@@ -136,7 +136,9 @@ class Environment:
         self.buying_price = np.array([])
         self.shares_owned = np.array([])
         self.equity += selling_total # Add what we actually got to equity
-        return (selling_total - buying_total)/buying_total # PL percentage
+
+        # PL percentage
+        return (selling_total - buying_total)/buying_total
 
     def hold(self):
         # Return 0, did nothing

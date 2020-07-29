@@ -105,6 +105,10 @@ def moving_averages(data,ks):
     max_k = np.max(ks)
     return moving_averages
 
+# Get the normalized time
+def normalized_time(time):
+    return (time - OPEN_TIME) / (CLOSE_TIME - OPEN_TIME)
+
 # Function for training on a batch for MC
 # Accepts transitions (s,a,r) batchsize, and all relevant things for model
 def train_model(transitions,batch_size,model,optimizer,loss_fn,num_actions):
