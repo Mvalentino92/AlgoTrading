@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import alpaca_trade_api as tradeapi
 import torch
 import random
+from collections import deque
 from ENV_Variables import *
 
 # Takes a timestamp object, and returns if the market is closed
@@ -91,14 +92,16 @@ def clean_data(data):
 
 # Computes the moving average for all values for various increments.
 # Returns a dictionary for all moving averages (all k's)
-def moving_averages(data,ks):
+def moving_averages(data,ks,history_len):
 
     # Create empty dictionary to append to
     moving_averages = dict()
 
     # For every k, compute and add
     for k in ks:
-        averages = np.mean(data.iloc[-1:-1-k:-1], axis=0)
+        averages = deque(maxlen=history_len)
+        for i in range(history_len-1,-1,-1):
+            averages.append(np.mean(data.iloc[-1-i:-1-k-i:-1]['4. close'], axis=0))
         moving_averages[k] = averages
 
     # Return moving_averages, last value array and new data
@@ -119,7 +122,11 @@ def train_model(transitions,batch_size,model,optimizer,loss_fn,num_actions):
     # Get all the the parts from the transition
     states = torch.Tensor([s for (s,a,r) in batch])
     actions = [a for (s,a,r) in batch]
-    returns = torch.Tensor([r for (s,a,r) in batch])
+    rewards = [r for (s,a,r) in batch]
+
+    # Calculate returns
+    returns = torch.Tensor(get_returns(rewards))
+    #returns = (returns - returns.mean())/returns.std()
 
     # Feed all states to get action values and flatten
     action_values = model(states).view(-1)
@@ -135,6 +142,21 @@ def train_model(transitions,batch_size,model,optimizer,loss_fn,num_actions):
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
+
+# Gets the returns from the rewards
+# REMEMBER TO REVERSE
+def get_returns(rewards):
+
+    R = 0
+    returns = []
+    for i in range(len(rewards)-1,-1,-1):
+
+        R = R*0.99 + rewards[i]
+        returns.append(R)
+
+    return returns[::-1]
+
+
 
 
 
