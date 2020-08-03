@@ -5,6 +5,10 @@ from CLASSES import *
 def normalized_time(current_time):
     return (current_time - TRADE_OPEN)/(TRADE_CLOSE - TRADE_OPEN)
 
+# Standardize data (comes in as Tensor which as funcs built in)
+def standardize(data):
+    return (data - data.mean())/data.std()
+
 # Returns only items within market time
 def within_market_times(data):
 
@@ -143,10 +147,44 @@ def get_start_index(data,t):
 
     return idx
 
+# Trains the model
+# TODO: Right now we literally hardcoded the action space as 2
+def train_model(model,transitions,batch_size,optimizer,
+                loss_fn,other_model,discount):
 
+    # Grab the batch
+    batch = random.sample(transitions,batch_size)
 
+    # Extract all the parts
+    # TODO: Remember, actions are both 0 or 1.
+    states = torch.Tensor([s for (s,_,_,_,_,_) in batch])
+    actions = [a for (_,a,_,_,_,_) in batch]
+    rewards = torch.Tensor([r for (_,_,r,_,_,_) in batch])
+    state_primes = torch.Tensor([sp for (_,_,_,sp,_,_) in batch])
+    has_stocks = torch.Tensor([hs for (_,_,_,_,hs,_) in batch])
+    dones = torch.Tensor([d for (_,_,_,_,_,d) in batch])
 
+    # Get the targets first (before actions is changed) no grad
+    with torch.no_grad():
+        action_values_prime = torch.empty((batch_size,2))
+        for i in range(batch_size):
+            if actions[i] == has_stocks[i]:
+                action_values_prime[i] = other_model(state_primes[i])
+            else:
+                action_values_prime[i] = model(state_primes[i])
+        targets = rewards + (torch.max(action_values_prime,dim=1)[0]*discount)*dones
 
+    # Get action value for all states (with grad)
+    action_values = model(states).view(-1)
 
+    # Scale up actions to get by number to get index for flattened states
+    actions = [i*2 + actions[i] for i in range(len(actions))]
 
+    # Grab these predictions
+    predictions = action_values[actions]
 
+    # Compute the loss and backprop ect
+    loss = loss_fn(predictions,targets)
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
