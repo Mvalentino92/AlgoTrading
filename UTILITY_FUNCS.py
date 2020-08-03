@@ -172,7 +172,7 @@ def train_model(model,transitions,batch_size,optimizer,
                 action_values_prime[i] = other_model(state_primes[i])
             else:
                 action_values_prime[i] = model(state_primes[i])
-        targets = rewards + (torch.max(action_values_prime,dim=1)[0]*discount)*dones
+        targets = rewards + (torch.max(action_values_prime,dim=1)[0]*discount)*(1-dones)
 
     # Get action value for all states (with grad)
     action_values = model(states).view(-1)
