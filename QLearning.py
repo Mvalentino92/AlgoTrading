@@ -66,11 +66,11 @@ sell_loss_fn = nn.MSELoss()
 
 # Set up an epislon greedy stratedgy (start with very high epsilon)
 epsilon = 1
-epsilon_min = 0.1
-epochs = 60
+epsilon_min = 0.01
+epochs = 480
 discount = 0.99
 delta = (epsilon_min/epsilon)**(1/epochs)
-clips = 20
+clips = 120
 
 # Set up experience replay
 buy_deque_len = 500
@@ -80,6 +80,14 @@ buy_transitions = deque(maxlen=buy_deque_len)
 sell_deque_len = 500
 sell_batch_size = 50
 sell_transitions = deque(maxlen=sell_deque_len)
+
+# Track all things
+times = []
+prices = []
+buy_times = []
+buy_prices = []
+sell_times = []
+sell_prices = []
 
 # Begin to start episodes (create env first)
 env = Environment('GOOGL')
@@ -101,7 +109,7 @@ for epoch in range(epochs):
     while not done:
 
         # Print the time and epoch
-        print('Epoch:',epoch,'\tTime:',env.day.t)
+        #print('Epoch:',epoch,'\tTime:',env.day.t)
 
         # Grab if has stock (need original value after we take a step)
         has_stock = env.has_stock
@@ -156,14 +164,29 @@ for epoch in range(epochs):
         # Set state as state_prime
         state = state_prime
 
+    # Decrease epsilon
+    epsilon *= delta
+
     # Show a plot if applicable
     if (epoch + 1) % clips == 0:
 
         # Plot the prices as line graph
-        plt.plot(time,price)
+        # plt.plot(time,price)
+        #
+        # # Plot scatterplots for buying and selling
+        # plt.scatter(buy_time,buy_price)
+        # plt.scatter(sell_time,sell_price)
+        #
+        # plt.show()
+        times.append(time)
+        prices.append(price)
+        buy_times.append(buy_time)
+        buy_prices.append(buy_price)
+        sell_times.append(sell_time)
+        sell_prices.append(sell_price)
 
-        # Plot scatterplots for buying and selling
-        plt.scatter(buy_time,buy_price)
-        plt.scatter(sell_time,sell_price)
-
-        plt.show()
+for i in range(len(times)):
+    plt.plot(times[i],prices[i])
+    plt.scatter(buy_times[i],buy_prices[i])
+    plt.scatter(sell_times[i],sell_prices[i])
+    plt.show()
