@@ -16,9 +16,10 @@ class Buy_Model(nn.Module):
         self.hidden1 = nn.Linear(buy_hidden1,buy_hidden2)
         self.hidden2 = nn.Linear(buy_hidden2,buy_output_)
 
-    # Standardize the input
+    # Standardize the input (not the normalized time)
     def forward(self,x):
-        x = standardize(x)
+        d = x.shape[0]
+        x = torch.cat((x[:,0].reshape(d,-1),standardize(x[:,1:])),dim=1)
         x = F.leaky_relu(self.input_(x))
         x = F.leaky_relu(self.hidden1(x))
         x = self.hidden2(x)
@@ -47,9 +48,10 @@ class Sell_Model(nn.Module):
         self.hidden1 = nn.Linear(sell_hidden1,sell_hidden2)
         self.hidden2 = nn.Linear(sell_hidden2,sell_output_)
 
-    # Standardize the input
+    # Standardize the input (not the normalized time)
     def forward(self,x):
-        x = standardize(x)
+        d = x.shape[0]
+        x = torch.cat((x[:,0].reshape(d,-1),standardize(x[:,1:])),dim=1)
         x = F.leaky_relu(self.input_(x))
         x = F.leaky_relu(self.hidden1(x))
         x = self.hidden2(x)
@@ -67,7 +69,7 @@ sell_loss_fn = nn.MSELoss()
 # Set up an epislon greedy stratedgy (start with very high epsilon)
 epsilon = 1
 epsilon_min = 0.01
-epochs = 10
+epochs = 30
 discount = 0.99
 delta = (epsilon_min/epsilon)**(1/epochs)
 clips = 1
@@ -92,6 +94,9 @@ sell_prices = []
 # Begin to start episodes (create env first)
 env = Environment('GOOGL')
 for epoch in range(epochs):
+
+    # Track
+    print('Epoch:',epoch)
 
     # Set up
     state = env.reset(day_index=0)
@@ -189,4 +194,5 @@ for i in range(len(times)):
     plt.plot(times[i],prices[i])
     plt.scatter(buy_times[i],buy_prices[i])
     plt.scatter(sell_times[i],sell_prices[i])
+    plt.lengend(('Prices','Buy','Sell'))
     plt.show()
