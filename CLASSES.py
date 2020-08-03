@@ -77,6 +77,12 @@ class Environment:
     # The reset function, returns the state
     def reset(self,day_index=None):
 
+        # Reset for fresh day
+        self.shares = 0
+        self.buying_price = None
+        self.has_stock = False
+        self.equity = 20000
+
         # Grab day
         if day_index == None:
             day_index = np.random.randint(self.day_span)
@@ -95,6 +101,7 @@ class Environment:
         return np.concatenate((t,open,open_history,moving_averages,moving_averages_histories))
 
     # The step function, takes the action and returns a new state,reward,and done
+    # TODO: Add in getting punished if action isn't sell while holding stocks at last time
     def step(self,action):
 
         # Perform the action in the current state
@@ -102,11 +109,11 @@ class Environment:
         # This is the previous day, because remember idx is on the next set of data
         close = self.day.intraday[self.day.idx-1,CLOSE_INDEX]
         if action == BUY:
-            self.shares = divmod(self.equity*BUY_PERCENTAGE,self.open)
+            self.shares = divmod(self.equity*BUY_PERCENTAGE,self.day.open)[0]
             self.buying_price = close
-            self.equity - self.shares*self.buying_price
+            self.equity -= self.shares*self.buying_price
             self.has_stock = True
-            reward = 0
+            reward = 0 if self.day.t < TRADE_CLOSE else -100
         elif action == SELL:
             pl = self.shares*close
             cost = self.shares*self.buying_price
@@ -114,9 +121,9 @@ class Environment:
             self.shares = 0
             self.buying_price = None
             self.has_stock = False
-            reward = (pl - cost)/cost
+            reward = (pl - cost)/cost*100
         elif action == HOLD:
-            reward = 0
+            reward = 0 if self.day.t < TRADE_CLOSE or not self.has_stock else -100
 
         # Now update the all variables
         # But first, get the new time and idx
@@ -151,7 +158,7 @@ class Environment:
         return observations,reward,done
 
     # Needs to know if buying or selling
-    def sample(is_selling):
+    def sample(self,is_selling):
         return np.random.randint(2) + is_selling
 
 
