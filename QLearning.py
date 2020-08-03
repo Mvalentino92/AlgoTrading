@@ -67,10 +67,10 @@ sell_loss_fn = nn.MSELoss()
 # Set up an epislon greedy stratedgy (start with very high epsilon)
 epsilon = 1
 epsilon_min = 0.01
-epochs = 480
+epochs = 10
 discount = 0.99
 delta = (epsilon_min/epsilon)**(1/epochs)
-clips = 120
+clips = 1
 
 # Set up experience replay
 buy_deque_len = 500
