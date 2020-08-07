@@ -23,11 +23,11 @@ CLOSE_INDEX = 4
 VOLUME_INDEX = 5
 
 # For histories
-NUM_OPEN_HISTORY = 3
-NUM_MOVING_AVG_HISTORY = 3
+NUM_OPEN_HISTORY = 7
+NUM_MOVING_AVG_HISTORY = 7
 
 # For moving averages make sure highest value + history is < 30
-MOVING_AVG_KS = [10,25]
+MOVING_AVG_KS = [10,20]
 
 # ACTION CONSTANTS
 BUY = 0
@@ -35,4 +35,7 @@ SELL = 2
 HOLD = 1
 
 # Percent of current equity to use to buy shares (floored)
-BUY_PERCENTAGE = 0.5
+BUY_PERCENTAGE = 0.2
+
+# Value to divide state space by (will always exceed any value)
+MAX_VAL = 2000

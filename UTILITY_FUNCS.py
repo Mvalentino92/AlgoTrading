@@ -1,6 +1,16 @@
 from IMPORTS import *
 from CLASSES import *
 
+# Grabs a realistic value using all prices of the stock for the day
+def action_price(intraday,idx,std_percent=0.1):
+    price_points = intraday[idx,OPEN_INDEX:VOLUME_INDEX]
+    weighted_mean = price_points*PRICE_WEIGHTS
+    return np.random.normal(weighted_mean,weighted_mean*std_percent)
+
+# Computes mean gradient
+def mean_gradient(data):
+    return np.mean(data[1:] - data[0:-1])
+
 # Gets the normalized time, between 0 and 1 (with respect to trading open and open)
 def normalized_time(current_time):
     return (current_time - TRADE_OPEN)/(TRADE_CLOSE - TRADE_OPEN)
@@ -164,6 +174,12 @@ def train_model(model,transitions,batch_size,optimizer,
     has_stocks = torch.Tensor([hs for (_,_,_,_,hs,_) in batch])
     dones = torch.Tensor([d for (_,_,_,_,_,d) in batch])
 
+    # Normalize states and stateprimes (normalized time isn't affected)
+    #d = states.shape[0]
+    #states = torch.cat((states[:,0].reshape(d,-1),standardize(states[:,1:])),dim=1)
+    #dp = state_primes.shape[0]
+    #state_primes = torch.cat((state_primes[:,0].reshape(d,-1),standardize(state_primes[:,1:])),dim=1)
+
     # Get the targets first (before actions is changed) no grad
     with torch.no_grad():
         action_values_prime = torch.empty((batch_size,2))
@@ -183,8 +199,8 @@ def train_model(model,transitions,batch_size,optimizer,
     # Grab these predictions
     predictions = action_values[actions]
 
-    # Compute the loss and backprop ect
-    loss = loss_fn(predictions,targets)
+    # Compute the loss and backprop ect (detach for safety)
+    loss = loss_fn(predictions,targets.detach())
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()

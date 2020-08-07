@@ -3,9 +3,9 @@ from CLASSES import *
 from UTILITY_FUNCS import *
 
 # Set layers for BUY NN
-buy_input_ = 13
-buy_hidden1 = 150
-buy_hidden2 = 50
+buy_input_ = 6
+buy_hidden1 = 256
+buy_hidden2 = 128
 buy_output_ = 2
 
 # Build the buy model
@@ -18,8 +18,6 @@ class Buy_Model(nn.Module):
 
     # Standardize the input (not the normalized time)
     def forward(self,x):
-        d = x.shape[0]
-        x = torch.cat((x[:,0].reshape(d,-1),standardize(x[:,1:])),dim=1)
         x = F.leaky_relu(self.input_(x))
         x = F.leaky_relu(self.hidden1(x))
         x = self.hidden2(x)
@@ -28,16 +26,16 @@ class Buy_Model(nn.Module):
 
 # Create model and set up optimizer
 buyer = Buy_Model()
-buy_lr = 0.00065
+buy_lr = 0.0001
 buy_optimizer = torch.optim.Adam(buyer.parameters(),lr=buy_lr)
 
 # The loss function for buyer
 buy_loss_fn = nn.MSELoss()
 
 # Now create the seller
-sell_input_ = 13
-sell_hidden1 = 150
-sell_hidden2 = 50
+sell_input_ = 6
+sell_hidden1 = 256
+sell_hidden2 = 128
 sell_output_ = 2
 
 # Build the sell model
@@ -50,8 +48,6 @@ class Sell_Model(nn.Module):
 
     # Standardize the input (not the normalized time)
     def forward(self,x):
-        d = x.shape[0]
-        x = torch.cat((x[:,0].reshape(d,-1),standardize(x[:,1:])),dim=1)
         x = F.leaky_relu(self.input_(x))
         x = F.leaky_relu(self.hidden1(x))
         x = self.hidden2(x)
@@ -60,19 +56,20 @@ class Sell_Model(nn.Module):
 
 # Create model and set up optimizer
 seller = Sell_Model()
-sell_lr = 0.00065
+sell_lr = 0.0001
 sell_optimizer = torch.optim.Adam(seller.parameters(),lr=sell_lr)
 
 # The loss function for seller
 sell_loss_fn = nn.MSELoss()
 
-# Set up an epislon greedy stratedgy (start with very high epsilon)
+# Set up an epislon greedy stratedgy (start with very high epsilon, keep linear)
 epsilon = 1
 epsilon_min = 0.01
-epochs = 30
-discount = 0.99
+epochs = 2500
+discount = 0.95
+delta = (epsilon - epsilon_min)/(epochs-1)
 delta = (epsilon_min/epsilon)**(1/epochs)
-clips = 1
+clips = epochs + 1
 
 # Set up experience replay
 buy_deque_len = 500
@@ -84,6 +81,10 @@ sell_batch_size = 50
 sell_transitions = deque(maxlen=sell_deque_len)
 
 # Track all things
+time_lasted = []
+epsilons = []
+epchs = []
+profits = []
 times = []
 prices = []
 buy_times = []
@@ -93,13 +94,11 @@ sell_prices = []
 
 # Begin to start episodes (create env first)
 env = Environment('GOOGL')
-for epoch in range(epochs):
+for epoch in range(1,epochs+1):
 
-    # Track
-    print('Epoch:',epoch)
 
     # Set up
-    state = env.reset(day_index=0)
+    state = env.reset()
     done = False
 
     # This is for tracking and plotting
@@ -154,9 +153,9 @@ for epoch in range(epochs):
         # TODO: Possibly minus 1 from sell action
         # TODO: Add has stock
         if has_stock:
-            sell_transitions.append((state,action-1,reward,state_prime,has_stock,done))
+            sell_transitions.append((state,action-int(has_stock),reward,state_prime,has_stock,done))
         else:
-            buy_transitions.append((state,action,reward,state_prime,has_stock,done))
+            buy_transitions.append((state,action-int(has_stock),reward,state_prime,has_stock,done))
 
         # If we can train, do so
         if len(buy_transitions) > buy_batch_size:
@@ -169,20 +168,26 @@ for epoch in range(epochs):
         # Set state as state_prime
         state = state_prime
 
-    # Decrease epsilon
-    epsilon *= delta
+    # Track
+    print('Epoch: {} with epsilon {} lasted {} minutes'.format(epoch,epsilon,env.day.t - TRADE_OPEN))
+    time_lasted.append(env.day.t - TRADE_OPEN)
+
+    # Day (episode) has ended, need to sell stock if we still own it (env.shares will be 0 if we don't own any so it works)
+    env.equity += env.shares*env.day.open # Just use open, whatever
+
+    # Decrease epsilon (but first save the one used for the episode)
+    eps_used = epsilon
+    if np.random.rand() < epsilon:
+        epsilon -= (epsilon - epsilon_min)/(epochs - epoch)
+    else:
+        epsilon *= (epsilon_min/epsilon)**(1/(epochs-epoch+1))
 
     # Show a plot if applicable
-    if (epoch + 1) % clips == 0:
+    if epoch % clips == 0:
 
-        # Plot the prices as line graph
-        # plt.plot(time,price)
-        #
-        # # Plot scatterplots for buying and selling
-        # plt.scatter(buy_time,buy_price)
-        # plt.scatter(sell_time,sell_price)
-        #
-        # plt.show()
+        epsilons.append(eps_used)
+        epchs.append(epoch)
+        profits.append(env.equity - 20000)
         times.append(time)
         prices.append(price)
         buy_times.append(buy_time)
@@ -194,5 +199,13 @@ for i in range(len(times)):
     plt.plot(times[i],prices[i])
     plt.scatter(buy_times[i],buy_prices[i])
     plt.scatter(sell_times[i],sell_prices[i])
-    plt.lengend(('Prices','Buy','Sell'))
+    plt.title('Epoch: {} with epsilon {} had {} profit lasting {} minutes'.format(epchs[i],np.around(epsilons[i],decimals=3),
+              np.around(profits[i],decimals=3),times[i][-1] - TRADE_OPEN))
+    plt.legend(('Prices','Buy','Sell'))
     plt.show()
+
+plt.scatter(range(len(time_lasted)),time_lasted)
+plt.show()
+
+torch.save(buyer.state_dict(),'buyer.pt')
+torch.save(seller.state_dict(),'seller.pt')

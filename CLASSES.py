@@ -91,14 +91,14 @@ class Environment:
         self.day = Day(self.intradays[day_index],self.opens[day_index])
 
         # Get observation space
-        t = np.array([normalized_time(self.day.t)]) # normalized to be between 0 and 1
-        open = np.array([self.day.open])
-        open_history = np.array(self.day.open_history)
+        open_gradient = np.array([mean_gradient(np.array(self.day.open_history))])
         moving_averages = np.array(list(self.day.moving_averages.values()))
-        moving_averages_histories = np.array(list(self.day.moving_averages_histories.values())).flatten()
+        moving_averages_gradient = np.apply_along_axis(mean_gradient,1,np.array(list(self.day.moving_averages_histories.values())))
+        open_vs_ma = (self.day.open - moving_averages)/moving_averages
+        ma_vs_ma = np.array([(moving_averages[1] - moving_averages[0])/moving_averages[0]])
 
         # Return it all
-        return np.concatenate((t,open,open_history,moving_averages,moving_averages_histories))
+        return np.concatenate((open_vs_ma,open_gradient,ma_vs_ma,moving_averages_gradient))
 
     # The step function, takes the action and returns a new state,reward,and done
     # TODO: Add in getting punished if action isn't sell while holding stocks at last time
@@ -113,17 +113,27 @@ class Environment:
             self.buying_price = close
             self.equity -= self.shares*self.buying_price
             self.has_stock = True
-            reward = 0 if self.day.t < TRADE_CLOSE else -100
+            reward = 0
+            reward = reward if self.day.t < TRADE_CLOSE else -10
         elif action == SELL:
-            pl = self.shares*close
+            net = self.shares*close
             cost = self.shares*self.buying_price
-            self.equity += pl
+            self.equity += net
             self.shares = 0
             self.buying_price = None
             self.has_stock = False
-            reward = (pl - cost)/cost*100
+            reward = (net - cost)/cost*100
+            reward = 1 if reward >= 0 else -1
+            time_scaler = 1 - normalized_time(self.day.t) + 1e-10
+            reward = reward*time_scaler
         elif action == HOLD:
-            reward = 0 if self.day.t < TRADE_CLOSE or not self.has_stock else -100
+            if self.has_stock:
+                net = self.shares*close
+                cost = self.shares*self.buying_price
+                reward = 0
+            else:
+                reward = 0
+            reward = reward if self.day.t < TRADE_CLOSE or not self.has_stock else -10
 
         # Now update the all variables
         # But first, get the new time and idx
@@ -143,28 +153,20 @@ class Environment:
         # Update idx
         self.day.idx += has_next_day
 
-        # Package everything and observations
-        t = np.array([normalized_time(self.day.t)]) # normalized to be between 0 and 1
-        open = np.array([self.day.open])
-        open_history = np.array(self.day.open_history)
+        #Package everything
+        open_gradient = np.array([mean_gradient(np.array(self.day.open_history))])
         moving_averages = np.array(list(self.day.moving_averages.values()))
-        moving_averages_histories = np.array(list(self.day.moving_averages_histories.values())).flatten()
-        observations = np.concatenate((t,open,open_history,moving_averages,moving_averages_histories))
+        moving_averages_gradient = np.apply_along_axis(mean_gradient,1,np.array(list(self.day.moving_averages_histories.values())))
+        open_vs_ma = (self.day.open - moving_averages)/moving_averages
+        ma_vs_ma = np.array([(moving_averages[1] - moving_averages[0])/moving_averages[0]])
+        observations = np.concatenate((open_vs_ma,open_gradient,ma_vs_ma,moving_averages_gradient))
 
         # Account for end of data, has next will be false because the difference between t and getting time will be 0
         end_of_data = self.day.idx == self.day.last_index
         self.day.idx -= end_of_data
-        done = self.day.t > TRADE_CLOSE
+        done = self.day.t > TRADE_CLOSE or reward < 0
         return observations,reward,done
 
     # Needs to know if buying or selling
     def sample(self,is_selling):
         return np.random.randint(2) + is_selling
-
-
-
-
-
-
-
-
