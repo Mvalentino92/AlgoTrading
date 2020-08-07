@@ -5,6 +5,7 @@ import alpaca_trade_api as tradeapi
 from ENV_Variables import *
 import pickle
 import random
+from collections import deque
 from CreateFunctions import *
 
 # The Environment class. Contains the standard openAIGym functions
@@ -13,7 +14,7 @@ class Environment:
     # Holds the api and av object, intraday data, starting moving averages,
     # and current index for data. Also what symbol of course!
     def __init__(self,key_id,secret_key,base_url,symbol,ks=[10,50,100,200],
-                 bp=[0.1,0.25,0.5,0.75],equity=20000.0,filename=''):
+                 bp=[0.5],equity=20000.0,history_len=4,filename=''):
 
         # The api and av object, will be used by everything else in init
         self.api = tradeapi.REST(key_id,secret_key,base_url,'v2')
@@ -21,6 +22,7 @@ class Environment:
 
         # Equity started with
         self.equity = equity
+        self.starting_equity = equity
 
         # Two arrays, one for number of shares bought,
         # the other for price bought at
@@ -29,7 +31,7 @@ class Environment:
 
         # Set the ks (for moving averages), (sorted)
         self.ks = np.sort(ks)
-        self.idx = np.max(self.ks)
+        self.idx = np.max(self.ks) + history_len - 1
 
         # Set the buy percentages as np.array
         # And get how many for max buy action integers
@@ -47,20 +49,28 @@ class Environment:
         else:
             self.data = clean_data(self.av.intraday_quotes(symbol, '1min', 'full', 'pandas'))
 
+        # Testing only first day
+        bools = list(map(lambda x: x.date().day == 14, self.data.index))
+        self.data = self.data.iloc[bools]
+
         # Grab length of data
         self.data_len = len(self.data)
 
         # Get all the moving average data for every field.
-        self.moving_averages = moving_averages(self.data, self.ks)
+        self.moving_averages = moving_averages(self.data.iloc[0:self.idx], self.ks, history_len)
 
         # Get last values used for moving averages
-        self.last_values = np.array(self.data.iloc[self.idx-1])
+        self.last_values = np.array(self.data.iloc[self.idx-2]['4. close'])
 
         # Get the close value
-        self.close = np.array(self.data.iloc[self.idx])[3]
+        self.close = np.array(self.data.iloc[self.idx-1])[3]
+
+        # Keeps a history of the last close values (including current)
+        self.close_history = deque(maxlen=history_len)
+        self.close_history.extend(np.array(self.data.iloc[self.idx-history_len:self.idx])[3])
 
         # Get current time
-        timestamp = self.data.iloc[self.idx].name
+        timestamp = self.data.iloc[self.idx-1].name
         self.current_time = timestamp.time().hour*60 + timestamp.time().minute
 
     # Returns the current state as an np.array
@@ -82,26 +92,27 @@ class Environment:
         datum = np.array(datum)
 
         # Calculates the total unrealized profit or loss (also set's the current close)
+        # And close history
+        # And last value
+        self.last_values = self.close
         self.close = datum[3]
+        self.close_history.append(self.close)
         profit_loss = np.sum((self.close - self.buying_price)*self.shares_owned)
         profit_loss = np.array([profit_loss])
 
+        # Owns stock or not
+        owns_stock = int(self.buying_price.size > 0 and self.shares_owned.size > 0)
+
         # Update moving averages before grabbing values for moving averages
         for key in self.moving_averages.keys():
-            self.moving_averages[key] += (datum - self.last_values)/key
-
-        # Update last_values to be datum
-        self.last_values = datum
+            current = self.moving_averages[key][-1] + (self.close - self.last_values)/key
+            self.moving_averages[key].append(current)
 
         # Set moving averages
         moving_average_values = np.array(list(self.moving_averages.values())).flatten()
 
         # Join everything but time together, then normalize
-        all_but_time = np.concatenate((equity_wrap, profit_loss, datum, moving_average_values)).astype(np.float64)
-        all_but_time = all_but_time / np.linalg.norm(all_but_time)
-
-        # Finally join that with time (which was normalized seperately)
-        retval = np.concatenate((t,all_but_time))
+        retval = np.concatenate((np.array(self.close_history), moving_average_values)).astype(np.float64)
 
         # update idx (since were done, and return)
         self.idx += 1
@@ -122,7 +133,13 @@ class Environment:
         self.equity -= self.shares_owned[-1]*self.buying_price[-1]
 
         # Return the reward for buying
-        return 0.0
+        # Testing out, buying is an investment,
+        # To enforce how much you need to make with the sell to get a positive reward,
+        # make buying cost the inverse of that.
+        # Below positively reinforces buys, when the selling price was 1% or more.
+        # Add in the time, alleviate the pressure to make big returns
+        # early, but keep them for late.
+        return -0.01
 
     def sell_stocks(self):
 
@@ -141,7 +158,9 @@ class Environment:
         return (selling_total - buying_total)/buying_total
 
     def hold(self):
-        # Return 0, did nothing
+
+        # To avoid buying and selling like crazy, holding will also have a reward.
+        # Eh, keep 0 for now.
         return 0.0
 
     # The step functions, takes an action and returns new info
@@ -179,8 +198,12 @@ class Environment:
     # To be used with sample, and also picking highest Q value avaiable
     def available_actions_bools(self):
 
-        # Checks if you can buy at least one stock for every percentage
-        can_buy = np.array(list(map(lambda x: x > 0, divmod(self.equity*self.bp, self.close)[0])))
+        # Can only buy if have nothing
+        if self.buying_price.size == 0 and self.shares_owned.size == 0:
+            # Checks if you can buy at least one stock for every percentage
+            can_buy = np.array(list(map(lambda x: x > 0, divmod(self.equity*self.bp, self.close)[0])))
+        else:
+            can_buy = np.full(self.num_buying_actions,False)
 
         # Checks if you have stocks to sell
         can_sell = np.array([self.buying_price.size > 0 and self.shares_owned.size > 0])
