@@ -3,6 +3,14 @@ from ENV_VAR import *
 
 # *** Any function that calls the API should wait 1 minute after finished ***
 
+# Gets current time hh:mm
+def get_time():
+    return time.strftime('%H:%M')
+
+# Sleep for either specified time, or 60 seconds because of API calls
+def sleeptime(calls,t=1):
+    return 60 if not calls else t
+
 # Returns n weights for mean gradients following some function
 # Provide the power of the polynomial you want to fit for
 def get_weights(f,n,k=0):
@@ -49,6 +57,7 @@ def filter_stocks(api, av, n=100, t=10, low=1, high=10, exchange=None):
         if symbol in currently_own:
             continue
 
+        # TODO: Change the try call to contain getting the entire close price, not just barset
         # Get current price and add one to calls (for getting price)
         try:
             calls = (calls + 1) % (APCA_MAX_CALLS - 1)  # Minus 1 because of initial call up top for safety
@@ -99,7 +108,8 @@ def recommend_to_buy(api, av, symbols, w1, w2, tw=0.7, vw= 0.3, N=30, M = 5, day
     # Get the current date and create the directory for this date
     current_date = datetime.date.today()
     date_string = current_date.strftime('%Y-%m-%d')
-    os.mkdir(date_string)
+    dirname = date_string + '_Recommend'
+    os.mkdir(dirname)
 
     # Get a date we want prices from
     # To ensure tight spacing between recent pricing
@@ -117,7 +127,14 @@ def recommend_to_buy(api, av, symbols, w1, w2, tw=0.7, vw= 0.3, N=30, M = 5, day
 
     # Begin to look up historical data for each up to date specified
     calls = 0
+    tracking_number = 0
+    track_after = 25
     for symbol in symbols:
+
+        # Track
+        tracking_number += 1
+        if tracking_number % track_after == 0:
+            print('Working on stock #{}'.format(tracking_number))
 
         # Grab raw values, filter by date, turn to np and reverse for proper order
         try:
@@ -234,7 +251,7 @@ def recommend_to_buy(api, av, symbols, w1, w2, tw=0.7, vw= 0.3, N=30, M = 5, day
                                                                  np.around(intraday_volatilities[i,2],decimals=5)))
 
         # Save the plot for each top stock
-        plt.savefig(date_string+'/'+'Stock'+str(i+1))
+        plt.savefig(dirname+'/'+'Stock_'+str(i+1))
 
     # Returns nothing, plots are enough
     time.sleep(60)

@@ -1,14 +1,13 @@
 from ENV_VAR import *
 from IMPORTS import *
 from utils import *
-from NN import *
 
 # Get APIS
 api = tradeapi.REST(APCA_API_KEY_ID,APCA_API_SECRET_KEY,APCA_API_BASE_URL,'v2')
 av = api.alpha_vantage
 
 # Get tradable symbols
-symbols = filter_stocks(api,av,n=100,t=5,exchange='NASDAQ')
+symbols = filter_stocks(api,av,n=365,t=15,exchange='NASDAQ')
 
 # Get two weight vectors
 w1 = get_weights(lambda x: x**2,100,k=0.2)
