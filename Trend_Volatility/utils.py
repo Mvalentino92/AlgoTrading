@@ -4,12 +4,21 @@ from ENV_VAR import *
 # *** Any function that calls the API should wait 1 minute after finished ***
 
 # Gets current time hh:mm
-def get_time():
+def get_time(asint=False):
+    if asint:
+        dtime = datetime.datetime.now()
+        return dtime.hour*60 + dtime.minute
     return time.strftime('%H:%M')
 
 # Sleep for either specified time, or 60 seconds because of API calls
 def sleeptime(calls,t=1):
     return 60 if not calls else t
+
+# Append a message to the log file and save it
+def update_log(message,filename):
+    file = open(filename,"a")
+    file.write(message+'\n')
+    file.close()
 
 # Returns n weights for mean gradients following some function
 # Provide the power of the polynomial you want to fit for
@@ -57,11 +66,10 @@ def filter_stocks(api, av, n=100, t=10, low=1, high=10, exchange=None):
         if symbol in currently_own:
             continue
 
-        # TODO: Change the try call to contain getting the entire close price, not just barset
         # Get current price and add one to calls (for getting price)
         try:
             calls = (calls + 1) % (APCA_MAX_CALLS - 1)  # Minus 1 because of initial call up top for safety
-            barset = api.get_barset(symbol, '1Min', 1)[symbol]
+            close = api.get_barset(symbol, '1Min', 1)[symbol][0].c
         except Exception:
             if not calls: # Duplicate in case api fail
                 time.sleep(60)
@@ -69,7 +77,6 @@ def filter_stocks(api, av, n=100, t=10, low=1, high=10, exchange=None):
             continue
         
         # Get close (set to Inf if had no price to ensure it's not added)
-        close = barset[0].c if len(barset) else np.Inf
         if low <= close <= high:
             symbols.append(symbol)
             n -= 1
@@ -109,6 +116,8 @@ def recommend_to_buy(api, av, symbols, w1, w2, tw=0.7, vw= 0.3, N=30, M = 5, day
     current_date = datetime.date.today()
     date_string = current_date.strftime('%Y-%m-%d')
     dirname = date_string + '_Recommend'
+    if os.path.exists(dirname): # Delete and remake to clear
+        os.rmdir(dirname)
     os.mkdir(dirname)
 
     # Get a date we want prices from
@@ -128,7 +137,7 @@ def recommend_to_buy(api, av, symbols, w1, w2, tw=0.7, vw= 0.3, N=30, M = 5, day
     # Begin to look up historical data for each up to date specified
     calls = 0
     tracking_number = 0
-    track_after = 25
+    track_after = 5
     for symbol in symbols:
 
         # Track
@@ -148,6 +157,12 @@ def recommend_to_buy(api, av, symbols, w1, w2, tw=0.7, vw= 0.3, N=30, M = 5, day
             if not calls:
                 time.sleep(60)
             continue
+
+        # TODO: Change this layout here. Make it so after we have enough historical daily data,
+        # and intraday data, we simply pass all this data to various tests.
+        # Tests will be trend stengths, volatility tests, indicators ect.
+        # If a stock passes all tests, we calculate it's score and add it to the list
+        # Also, take this out of utils, put all recommendations stuff in another file
 
         # Passed the tests, normalize all close values
         closes /= np.sum(closes)
@@ -180,6 +195,9 @@ def recommend_to_buy(api, av, symbols, w1, w2, tw=0.7, vw= 0.3, N=30, M = 5, day
             try:
                 calls = (calls + 1) % AV_MAX_CALLS
                 intradays = av.intraday_quotes(symbol,'1min')
+                intraday_closes = np.array([list(sample.values()) 
+                              for sample in intradays.values()],dtype=np.float)[::-1,CLOSE_INDEX]
+                intraday_closes[N] # See if we can get at least N
             except Exception:
                 if not calls: # Check for sleep again because of continue
                     time.sleep(60)
@@ -194,8 +212,6 @@ def recommend_to_buy(api, av, symbols, w1, w2, tw=0.7, vw= 0.3, N=30, M = 5, day
             daily_volatilities.append(daily_volatility)
 
             # Finish intraday voli calc 
-            intraday_closes = np.array([list(sample.values()) 
-                              for sample in intradays.values()],dtype=np.float)[::-1,CLOSE_INDEX]
             intraday_gradient = np.gradient(intraday_closes)
             intraday_gradient_ups = intraday_gradient[intraday_gradient > 0]
             intraday_gradient_downs = intraday_gradient[intraday_gradient < 0]
@@ -238,7 +254,7 @@ def recommend_to_buy(api, av, symbols, w1, w2, tw=0.7, vw= 0.3, N=30, M = 5, day
 
         # Create sub plots, one for daily one for intraday
         fig,axs = plt.subplots(3,figsize=(16,22))
-        fig.suptitle(syms[i])
+        fig.suptitle(syms[i],fontsize=18)
         axs[0].plot(np.arange(len(all_closes[i])),all_closes[i])
         axs[0].set_title('DAILY -> TREND: {} VOL: {}'.format(np.around(trend_strengths[i],decimals=5),
                                                  np.around(daily_volatilities[i],decimals=5)))
@@ -250,8 +266,9 @@ def recommend_to_buy(api, av, symbols, w1, w2, tw=0.7, vw= 0.3, N=30, M = 5, day
                                                                  np.around(intraday_volatilities[i,1],decimals=5),
                                                                  np.around(intraday_volatilities[i,2],decimals=5)))
 
-        # Save the plot for each top stock
+        # Save the plot for each top stock (and close)
         plt.savefig(dirname+'/'+'Stock_'+str(i+1))
+        plt.close()
 
     # Returns nothing, plots are enough
     time.sleep(60)
