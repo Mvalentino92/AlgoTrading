@@ -7,7 +7,7 @@ current_date = datetime.date.today()
 date_string = current_date.strftime('%Y-%m-%d')
 dirname = date_string + '_ClosingPrices'
 if os.path.exists(dirname): # Delete and create to clear
-    os.rmdir(dirname)
+    shutil.rmtree(dirname)
 os.mkdir(dirname)
 
 # Set calls
@@ -15,11 +15,11 @@ calls = 0
 
 # clear logfiles
 open(LOG_FILE,"w").close()
-open(PL_FILE,"W").close()
+open(PL_FILE,"w").close()
 
 # Set pscale and lscale
-pscale = 3.85
-lscale = 5
+pscale = 20
+lscale = 25
 
 # Get APIS
 api = tradeapi.REST(APCA_API_KEY_ID,APCA_API_SECRET_KEY,APCA_API_BASE_URL,'v2')
@@ -98,7 +98,7 @@ for sym in to_buy:
 
 # Wait for orders to go through, grab entry prices and create arrays for plotting price over time
 # Note, keep plotting for any stocks we have, regardless of selling.
-time.sleep(5)
+time.sleep(60) # Had at 5, increased to 60 to ensure orders go through
 while True:
     try:
         calls = (calls + 1) % APCA_MAX_CALLS
