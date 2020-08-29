@@ -58,3 +58,72 @@ def quadratic(x, a, b, c):
 def cubic(x, a, b, c, d):
     return a * x ** 3 + b * x ** 2 + c * x + d
 
+# Run simulations to get tolerances for selling
+def score_tolerances(x,*args):
+
+    # Unpack args
+    data = args[0]
+    trials = args[1]
+
+    # Set number profit, loss, and track how many trials ended sucessfully
+    profit = 0
+    loss = 0
+    trials_sold = 0
+
+    # Useful vars
+    data_len = len(data)
+    drop_bound = data_len - 390 - 100 # minus 1 day for day trade, minus 100 for time to actually sell next day
+
+    # Begin running simulations using these tolerances
+    for i in range(trials):
+
+        # Get random starting point
+        j = random.randint(0,drop_bound)
+        start = j
+        sold = False
+
+        # Get price at this point
+        price = data[j]
+
+        # Begin to iterate forward, and sell if hit tolerances
+        j += 390
+        while j < data_len:
+
+            # Get plpc and check if had to sell, tally accordingly
+            plpc = (data[j] - price)/price
+            if plpc >= x[0]:
+                profit += 1
+                trials_sold += 1
+                sold = True
+                break
+            elif plpc <= x[1]:
+                loss += 1
+                trials_sold += 1
+                sold = True
+                break
+
+            # Incremet j if didnt break
+            j += 1
+
+    #print(sold,' ',j - start + 390)
+    # TODO: How much profit or loss needs to be reflected here,
+    # otherwise, small profit and big loss will always be the best
+    # TODO: Reflect frequency of trials ending in selling. by dividing by just trials
+    # NOTE: Given current, if 0.01 tol triggers all, 0.1 needs to trigger 1/10 to be equal. I like it.
+    return (loss*np.abs(x[1])-profit*np.abs(x[0]))/trials if trials_sold > 0 else np.Inf
+
+# Get best tolerances using brute force grid search
+def get_tolerances(data,trials=1000):
+
+    # Create the ranges and number of ways to chop axis
+    rranges = ((0.01,0.1),(-0.1,-0.01))
+    Ns = 20
+
+    # Create the args
+    args = (data,trials)
+
+    # Pass to brute
+    ret = opt.brute(score_tolerances,rranges,args=args,Ns=Ns,finish=None)
+
+    # Return the best tolerances
+    return ret

@@ -18,8 +18,8 @@ open(LOG_FILE,"w").close()
 open(PL_FILE,"w").close()
 
 # Set pscale and lscale
-pscale = 20
-lscale = 25
+pscale = 1
+lscale = 1
 
 # Get APIS
 api = tradeapi.REST(APCA_API_KEY_ID,APCA_API_SECRET_KEY,APCA_API_BASE_URL,'v2')
@@ -31,21 +31,21 @@ contents = file.read()
 to_buy = ast.literal_eval(contents)
 file.close()
 
-# Read in the dictionary selling tolerances
+# Read in the dictionary selling tolerances (for later, no day trading)
 file = open(SELL_FILE,"r")
 contents = file.read()
-to_sell = ast.literal_eval(contents)
+to_sell_later = ast.literal_eval(contents)
 file.close()
 
 # CONFIRM WE HAVE ALL THE SAME STOCKS HERE
-if to_buy.keys() != to_sell.keys():
+if to_buy.keys() != to_sell_later.keys():
     print('BUY AND SELL SYMBOL LIST DONT MATCH: EXITING')
     exit()
 
-# Read and extend this dictionary by the stocks we already own
+# Read in stocks to sell that sat for a day
 file = open(OWNED_FILE,"r")
 contents = file.read()
-to_sell.update(ast.literal_eval(contents))
+to_sell = ast.literal_eval(contents)
 file.close()
 
 # Get original cash
@@ -90,7 +90,7 @@ for sym in to_buy:
 
         # If something went wrong, we need to take this stock off of to_sell
         update_log('Failed to buy stock {} at time {}'.format(sym,get_time()),LOG_FILE)
-        to_sell.pop(sym,None)  
+        to_sell_later.pop(sym,None)  
     time.sleep(sleeptime(calls,t=0)) # Sleep
 
 # Get original investment
@@ -102,7 +102,8 @@ time.sleep(60) # Had at 5, increased to 60 to ensure orders go through
 while True:
     try:
         calls = (calls + 1) % APCA_MAX_CALLS
-        positions = api.list_positions()
+        # TODO: Filter positions by ones we can operate on
+        positions = [position for position in api.list_positions() if position.symbol not in to_sell_later.keys()]
         break
     except Exception:
         update_log('Failed to get initial positions at {}'.format(get_time()),LOG_FILE)
@@ -192,7 +193,7 @@ while isopen and len(positions) > 0:
     while True:
         try:
             calls = (calls + 1) % APCA_MAX_CALLS
-            positions = api.list_positions()
+            positions = [position for position in api.list_positions() if position.symbol not in to_sell_later.keys()]
             break
         except Exception:
             update_log('Failed to get new postions at {}'.format(get_time()),LOG_FILE)
@@ -214,7 +215,9 @@ while isopen and len(positions) > 0:
             time.sleep(sleeptime(calls))
     time.sleep(sleeptime(calls,t=0))
 
+# Add stocks we bought today to Owned stocks (so we can sell starting tomorrow)
 # Add stocks we still have to sell ownedstocks file
+to_sell.update(to_sell_later)
 file = open(OWNED_FILE,"w")
 file.write(str(to_sell))
 file.close()

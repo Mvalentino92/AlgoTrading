@@ -117,9 +117,9 @@ def recommend_to_buy(api, av, symbols, w1, w2, w3, w4, Ns, M = 5, day_spacing=2,
         try:
             calls = (calls + 1) % AV_MAX_CALLS
             intradays = av.intraday_quotes(symbol,'1min')
-            intraday_closes = np.array([list(sample.values()) 
-                          for sample in intradays.values()],dtype=np.float)[::-1,CLOSE_INDEX]
-            intraday_closes[390*3] # See if we can get at least 3 days worth
+            intraday_closes = np.array([list(sample.values())
+                              for sample in intradays.values()],dtype=np.float)[::-1,CLOSE_INDEX]
+            intraday_closes[390*5] # See if we can get at least 3 days worth (missing price tol = 10/5)
         except Exception:
             if not calls: # Check for sleep again because of continue
                 time.sleep(60)
@@ -134,6 +134,7 @@ def recommend_to_buy(api, av, symbols, w1, w2, w3, w4, Ns, M = 5, day_spacing=2,
         # ---------------------------------------------------------------------------------------------------------------
         # TEST 1) Curve fitting for trend strength
         #         PASS: Positive value
+        #         SCORE: As is
         pass1 = False
         strengths = []
         xs = np.linspace(0, 1, N_tv)
@@ -161,11 +162,12 @@ def recommend_to_buy(api, av, symbols, w1, w2, w3, w4, Ns, M = 5, day_spacing=2,
 
         # -------------------------------------------------------------------------------------------------------------
         # TEST 2): Checking that weighted average volatility
-        #          PASS: < 0.05
+        #          PASS: Moves enough, but not too much (see below)
+        #          SCORE: 1 - value
         pass2 = False
         daily_diffs = np.abs(closes_tv[1:] - closes_tv[:-1])/closes_tv[:-1]
         daily_avg_volatility = np.sum(daily_diffs*w3)
-        pass2 = daily_avg_volatility < 0.05
+        pass2 = 0.01 < daily_avg_volatility < 0.05
         # -----------------------------------------------------------------------------------------------------------
 
         # Check if passed test 2, if not continue
@@ -175,6 +177,7 @@ def recommend_to_buy(api, av, symbols, w1, w2, w3, w4, Ns, M = 5, day_spacing=2,
         # ----------------------------------------------------------------------------------------------------------
         # TEST 3): Mean reversion
         #          PASS: negative (little more negative)
+        #          SCORE: Absolute value
         diff_mean_tol = 1e-2
         pass3 = False
         close_mean = np.mean(closes_mr)
@@ -182,15 +185,16 @@ def recommend_to_buy(api, av, symbols, w1, w2, w3, w4, Ns, M = 5, day_spacing=2,
         pass3 = diff_from_mean < -diff_mean_tol
         # --------------------------------------------------------------------------------------------------------
 
-        # TODO: Don't fail for just mean reversion, just set score to epsilon
-        # Can't do 0, if every one fails, divmax() will result in division by 0
-        # If everyone fails, then everyone is 1 and no harm. 
-        # But if someone passes, the losers will be significantly lower (check magnitudes)
-        # So passing mean reversion gives you a significant boost to your score
+        # No one fails this test, just get's penalized for not passing
         if not pass3:
-            diff_from_mean = diff_mean_tol / 10
+            0 # nothing
         else:
             print('Passed mr with {}'.format(diff_from_mean))
+
+        # ----------------------------------------------------------------------------------------------------------
+        # TEST 4): ??
+        #          PASS: ??
+        #          SCORE: ??
 
         # ** ALL TESTS ARE DONE, store all values and calculate suggested tolerance with intraday **
 
@@ -198,16 +202,16 @@ def recommend_to_buy(api, av, symbols, w1, w2, w3, w4, Ns, M = 5, day_spacing=2,
         syms.append(symbol)
         trend_strengths.append(trend_strength) # Test 1
         daily_avg_volatilities.append(daily_avg_volatility) # Test 2
-        diff_from_means.append(np.abs(diff_from_mean)) # Test 3 (take abs because we want distances)
+        diff_from_means.append(diff_from_mean) # Test 3
 
         # Get intraday calculations and append
-        intraday_diffs = (intraday_closes[1:] - intraday_closes[:-1])/intraday_closes[:-1]
-        intraday_diffs_ups = intraday_diffs[intraday_diffs > 0]
-        intraday_diffs_downs = intraday_diffs[intraday_diffs < 0]
-        intraday_avg_volatility = (np.mean(np.abs(intraday_diffs)), # pos + neg
-                               np.mean(intraday_diffs_ups), # pos
-                               np.mean(intraday_diffs_downs)) # neg
-        intraday_avg_volatilities.append(intraday_avg_volatility)
+        #intraday_diffs = (intraday_closes[1:] - intraday_closes[:-1])/intraday_closes[:-1]
+        #intraday_diffs_ups = intraday_diffs[intraday_diffs > 0]
+        #intraday_diffs_downs = intraday_diffs[intraday_diffs < 0]
+        #intraday_avg_volatility = (np.mean(np.abs(intraday_diffs)), # pos + neg
+        #                       np.mean(intraday_diffs_ups), # pos
+         #                      np.mean(intraday_diffs_downs)) # neg
+        #intraday_avg_volatilities.append(intraday_avg_volatility)
 
         # Add to closes and intraday_closes
         all_closes.append(closes)
@@ -221,19 +225,42 @@ def recommend_to_buy(api, av, symbols, w1, w2, w3, w4, Ns, M = 5, day_spacing=2,
     if len(trend_strengths) == 0:
         print('No stocks passed tests')
         exit()
+    else:
+        print('Stocks passed: {}'.format(len(trend_strengths)))
 
+    # Turn all to numpy array
+    trend_strengths = np.array(trend_strengths)
+    daily_avg_volatilities = np.array(daily_avg_volatilities)
+    diff_from_means = np.array(diff_from_means)
+
+    # ** FIX ANY VALUES BEFORE DIVMAXING **
+
+    # Set losers for mean reversion as tolerance / 5. Then take absolute value for scoring
+    diff_winners_max = np.max(diff_from_means[diff_from_means < diff_mean_tol]) # Really worst value that passed
+    diff_loser_indices = list(itertools.compress(range(len(diff_from_means)),diff_from_means >= diff_mean_tol)) # indices
+    diff_from_means[diff_loser_indices] = diff_winners_max / 5
+    diff_from_means = np.abs(diff_from_means)
+    
     # Rescale all test values with respect to each other for scoring
     # Originally used minmax, trying divmax because if values are really close (which they probably are)
     # minmax punishes and increases distances for values very close
-    trend_strengths = divmax(np.array(trend_strengths))
-    daily_avg_volatilities = divmax(np.array(daily_avg_volatilities))
-    diff_from_means = divmax(np.array(diff_from_means))
+    # Note all > 0, so it will put them in same range
+    trend_strengths = divmax(trend_strengths)
+    daily_avg_volatilities = divmax(daily_avg_volatilities)
+    diff_from_means = divmax(diff_from_means)
+
+    # ** FIX ANY VALUES BEFORE SCORING **
+
+    # Fix volatility so high scores are bad, low scores are good
+    daily_avg_volatilities = 1 + np.min(daily_avg_volatilities) - daily_avg_volatilities
 
     # Take the weighted average to figure out scores
     # Test 1) As is
-    # Test 2) 1 - daily_vol, because lower volatilities are more stable
+    # Test 2) 1 + min(daily_vol) - daily_vol, because lower volatilities are more stable, and want best value to receive 1
     # Test 3) As is
-    scores = np.sum(np.array([trend_strengths,(1-daily_avg_volatilities),diff_from_means]).T*w4,axis=1)
+    scores = np.sum(np.array([trend_strengths,
+                   daily_avg_volatilities,
+                   diff_from_means]).T*w4,axis=1)
 
     # Argsort on scores
     sorted_order = np.argsort(scores)[::-1]
@@ -244,7 +271,7 @@ def recommend_to_buy(api, av, symbols, w1, w2, w3, w4, Ns, M = 5, day_spacing=2,
     trend_strengths = trend_strengths[sorted_order][:M]
     daily_avg_volatilities = daily_avg_volatilities[sorted_order][:M]
     diff_from_means = diff_from_means[sorted_order][:M]
-    intraday_avg_volatilities = np.array(intraday_avg_volatilities)[sorted_order][:M] # np
+    #intraday_avg_volatilities = np.array(intraday_avg_volatilities)[sorted_order][:M] # np
     all_closes = np.array(all_closes)[sorted_order][:M] #np
     all_intraday_closes = np.array(all_intraday_closes)[sorted_order][:M] #np
 
@@ -254,21 +281,28 @@ def recommend_to_buy(api, av, symbols, w1, w2, w3, w4, Ns, M = 5, day_spacing=2,
     yhigh = np.max(all_closes)
     for i in range(len(syms)):
 
+        # TODO: Calculate suggested tolerances, running simulation with intraday data
+        start_time = time.time()
+        ptol,ltol = get_tolerances(all_intraday_closes[i])
+        stop_time = time.time()
+        print('Time {}'.format((stop_time - start_time)/60))
+
         # Create sub plots, one for daily one for intraday
         fig,axs = plt.subplots(3,figsize=(16,22))
-        fig.suptitle(syms[i],fontsize=18)
+        fig.suptitle(syms[i],fontsize=35)
         axs[0].plot(np.arange(len(all_closes[i])),all_closes[i])
-        axs[0].set_title('DAILY -> SCORE: {} TREND: {} VOL: {} MR: {}'.format(np.around(scores[i],decimals=5),
+        axs[0].set_title('DAILY -> SCORE: {} | TREND: {} | VOL: {} | MR: {}'.format(np.around(scores[i],decimals=5),
                                                  np.around(trend_strengths[i],decimals=5),
                                                  np.around(daily_avg_volatilities[i],decimals=5),
-                                                 np.around(diff_from_means[i],decimals=5)))
+                                                 np.around(diff_from_means[i],decimals=5)),fontsize=25)
         axs[0].set_ylim([ylow,yhigh])
-        axs[1].set_title('DAILY: Zoom in look')
+        axs[1].set_title('DAILY: Zoom in look',fontsize=25)
         axs[1].plot(np.arange(len(all_closes[i])),all_closes[i])
         axs[2].plot(np.arange(len(all_intraday_closes[i])),all_intraday_closes[i])
-        axs[2].set_title('INTRADAY -> VOL: {} UPS: {} DOWNS: {}'.format(np.around(intraday_avg_volatilities[i,0],decimals=5),
-                                                                 np.around(intraday_avg_volatilities[i,1],decimals=5),
-                                                                 np.around(intraday_avg_volatilities[i,2],decimals=5)))
+        #axs[2].set_title('INTRADAY -> VOL: {} UPS: {} DOWNS: {}'.format(np.around(intraday_avg_volatilities[i,0],decimals=5),
+        #                                                         np.around(intraday_avg_volatilities[i,1],decimals=5),
+        #                                                         np.around(intraday_avg_volatilities[i,2],decimals=5)))
+        axs[2].set_title('INTRADAY -> PTOL {} | LTOL: {}'.format(np.around(ptol,decimals=5),np.around(ltol,decimals=5)),fontsize=25)
 
         # Save the plot for each top stock (and close)
         plt.savefig(dirname+'/'+'Stock_'+str(i+1))
